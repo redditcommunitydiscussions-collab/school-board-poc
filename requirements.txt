@@ -1,0 +1,10 @@
+streamlit
+pandas
+dateparser
+icalendar
+python-dotenv
+google-generativeai
+google-auth
+google-auth-oauthlib
+google-api-python-client
+streamlit-autorefresh
