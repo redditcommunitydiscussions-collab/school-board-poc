@@ -704,7 +704,7 @@ else:
                         "details": f"{row['note']} (from {row['from']})",
                     }
                     if isinstance(row.get("location"), str) and row["location"].strip():
-                        params["location"] = row["location"].strip()
+                        params["location"] = (row.get("location") or "").strip()
                     url = "https://www.google.com/calendar/render?" + urlencode(params)
                     safe_title = esc(row["title"])
 safe_start = esc(row["start"])
