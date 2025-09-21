@@ -713,6 +713,11 @@ else:
 left, _ = st.columns([1, 3])  # You can change proportions
 with left:
     st.subheader("Detected activities")
+    selected = []  # <--- Define this before the loop
+    for _, row in df.iterrows():
+        checkbox_label = f"{row['title']} — {row['start']}"
+        if st.checkbox(checkbox_label, key=row["id"]):  # or some unique identifier
+           selected.append(row["id"])
     selected_ids = set(selected)
     for _, row in df.iterrows():
         level = "high" if row["urgency_score"] >= 80 else ("med" if row["urgency_score"] >= 60 else "low")
