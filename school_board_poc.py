@@ -447,11 +447,34 @@ with st.sidebar:
 
     st.divider()
     st.header("School filters")
-    domain_str = st.text_input("Sender domains (comma-separated)", value=DEFAULT_SCHOOL_DOMAINS)
-    sender_str = st.text_input("Exact sender emails (comma-separated)", value=DEFAULT_SCHOOL_SENDERS)
-    kw_str     = st.text_input("Must contain keywords (comma-separated)", value=DEFAULT_KEYWORDS)
-    neg_str    = st.text_input("Exclude if contains (comma-separated)", value=DEFAULT_NEGATIVE)
 
+domain_str = st.text_input(
+    "Sender domains (comma-separated)",
+    value="",
+    placeholder="eanes.org, myschool.org, school.edu, k12.tx.us, pta.org",
+    help="Match on email sender domains. Example: eanes.org"
+)
+
+sender_str = st.text_input(
+    "Exact sender emails (comma-separated)",
+    value="",
+    placeholder="teacher@myschool.org, principal@district.k12.tx.us",
+    help="Full email addresses for precise matching."
+)
+
+kw_str = st.text_input(
+    "Must contain keywords (comma-separated)",
+    value="",
+    placeholder="school, pta, teacher, classroom, field trip, due, forms",
+    help="Email must contain at least one of these words."
+)
+
+neg_str = st.text_input(
+    "Exclude if contains (comma-separated)",
+    value="",
+    placeholder="unsubscribe, terms, privacy, marketing, promotions, newsletter, invoice, receipt",
+    help="If any of these words appear, the email is ignored."
+)
     st.divider()
     use_gemini = st.toggle("Use Gemini extraction (LLM)", value=bool(GEMINI_API_KEY),
                            help="Requires GEMINI_API_KEY")
