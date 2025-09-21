@@ -579,15 +579,15 @@ else:
         )
 
     with right:
-    st.subheader("Select & export")
-    options = df["id"].tolist()
+        st.subheader("Select & export")
+        options = df["id"].tolist()
 
-    # Auto-select the first item if nothing chosen yet
-    selected = st.multiselect(
-        "Pick event ids",
-        options=options,
-        default=([options[0]] if options else []),
-        format_func=lambda x: f"{x} — {df.loc[df['id']==x,'title'].values[0]}",
+        # Auto-select the first item if nothing chosen yet
+        selected = st.multiselect(
+            "Pick event ids",
+            options=options,
+            default=([options[0]] if options else []),
+            format_func=lambda x: f"{x} — {df.loc[df['id']==x,'title'].values[0]}",
     )
 
     chosen = df[df["id"].isin(selected)]
