@@ -15,8 +15,11 @@ import base64
 from datetime import datetime, timedelta
 from urllib.parse import urlencode
 import html
-def esc(s):
-    return html.escape(str(s or ""), quote=True)
+
+def esc(x) -> str:
+    """HTML-escape any value to prevent invalid tag-name errors."""
+    return html.escape("" if x is None else str(x))
+
 
 # --- Email/IMAP
 import imaplib
@@ -713,27 +716,27 @@ with left:
     selected_ids = set(selected)
     for _, row in df.iterrows():
         level = "high" if row["urgency_score"] >= 80 else ("med" if row["urgency_score"] >= 60 else "low")
-        tag = f'<span class="sb-badge {row["badge_class"]}">{esc(row["badge_txt"])}</span>'
+        tag = f'<span class="sb-badge {row["badge_class"]}">{row["badge_txt"]}</span>'
         picked = "✅" if row["id"] in selected_ids else "◻️"
 
-        # escape everything that could contain < or >
-        title_html = esc(row["title"])
-        start_html = esc(row["start"])
-        end_html   = esc(row["end"])
-        type_html  = esc(row["type"])
-        from_html  = esc(row["from"])
-        loc        = (row.get("location") or "").strip()
-        loc_html   = esc(loc)
-        loc_line   = f"<br><b>Location:</b> {loc_html}" if loc else ""
+        # NEW: escape everything that goes into HTML
+        safe_title = esc(row["title"])
+        safe_type  = esc(row["type"])
+        safe_start = esc(row["start"])
+        safe_end   = esc(row["end"])
+        safe_from  = esc(row["from"])
+        safe_loc   = esc(row.get("location", ""))
+
+        loc_line = f"<br><b>Location:</b> {safe_loc}" if safe_loc else ""
 
         st.markdown(
             f"""
             <div class="sb-card {level}">
-                <h4 class="title">{picked} {title_html}</h4>
+                <h4 class="title">{picked} {safe_title}</h4>
                 <p class="meta">
-                    <b>Start:</b> {start_html}  •  <b>End:</b> {end_html}  •  <b>Type:</b> {type_html} {tag}
+                    <b>Start:</b> {safe_start}  •  <b>End:</b> {safe_end}  •  <b>Type:</b> {safe_type} {tag}
                     {loc_line}<br>
-                    <b>From:</b> {from_html}
+                    <b>From:</b> {safe_from}
                 </p>
                 <span class="sb-badge">#{row['id']}</span>
             </div>
