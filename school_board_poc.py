@@ -549,11 +549,20 @@ if not all_events:
     st.info("No activities detected. Loosen filters or preview emails.")
 else:
     # Build DF for UI
+# Build DF for UI
     rows = []
     for i, ev in enumerate(all_events):
         score = int(ev.get("urgency_score", 0))
         badge_txt = "🔴 High" if score >= 80 else ("🟡 Medium" if score >= 60 else "🟢 Low")
         badge_class = "high" if score >= 80 else ("med" if score >= 60 else "low")
+        
+        # --- START MODIFICATION 1 ---
+        # Sanitize the 'from' email for use in HTML attributes
+        # This replaces characters like '@' and '.' with hyphens, making them safe for IDs/classes
+        from_raw = ev.get("source_from", "")
+        from_sanitized = re.sub(r'[^a-zA-Z0-9_-]', '-', from_raw).lower() # Keep alphanumeric, hyphens, underscores
+        # --- END MODIFICATION 1 ---
+
         rows.append({
             "id": i + 1,
             "title": ev.get("title", "School event"),
@@ -564,7 +573,8 @@ else:
             "start": ev["start"].strftime("%Y-%m-%d %H:%M"),
             "end": ev["end"].strftime("%Y-%m-%d %H:%M"),
             "location": ev.get("location", ""),
-            "from": ev.get("source_from", ""),
+            "from": from_raw, # Keep original 'from' for display
+            "from_sanitized": from_sanitized, # Add sanitized 'from'
             "note": ev.get("notes") or ev.get("raw_line", ""),
         })
     df = pd.DataFrame(rows)
@@ -648,6 +658,7 @@ else:
         with left:
             st.subheader("Detected activities")
             # Render cards (highlight if selected)
+# Render cards (highlight if selected)
             selected_ids = set(selected)
             for _, row in df.iterrows():
                 level = "high" if row["urgency_score"] >= 80 else ("med" if row["urgency_score"] >= 60 else "low")
@@ -655,9 +666,18 @@ else:
                 picked = "✅" if row["id"] in selected_ids else "◻️"
                 loc = (row["location"] or "").strip()
                 loc_line = f"<br><b>Location:</b> {loc}" if loc else ""
+                
+                # --- START MODIFICATION 2 ---
+                # Use the sanitized 'from' for a unique ID on the card
+                # This prevents invalid characters in the DOM element ID/class
+                card_id_base = f"card-{row['from_sanitized']}"
+                # Ensure each card has a unique ID, even if from the same sender
+                unique_card_id = f"{card_id_base}-{row['id']}" 
+                # --- END MODIFICATION 2 ---
+
                 st.markdown(
                     f"""
-                    <div class="sb-card {level}">
+                    <div id="{unique_card_id}" class="sb-card {level}">
                         <h4 class="title">{picked} {row['title']}</h4>
                         <p class="meta">
                             <b>Start:</b> {row['start']}  •  <b>End:</b> {row['end']}  •  <b>Type:</b> {row['type']} {tag}
