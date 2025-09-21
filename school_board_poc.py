@@ -76,7 +76,7 @@ MAILBOX    = env("MAILBOX", "INBOX")
 MAX_EMAILS = int(env("MAX_EMAILS", "80"))
 
 # Filter defaults
-DEFAULT_SCHOOL_DOMAINS = " "
+DEFAULT_SCHOOL_DOMAINS = ""
 DEFAULT_SCHOOL_SENDERS = ""  # e.g., "teacher@myschool.org, principal@district.k12.tx.us"
 DEFAULT_KEYWORDS       = "school, pta, teacher, classroom, homeroom, field trip, permission slip, bus, assembly, cafeteria, counselor, principal, due, forms"
 DEFAULT_NEGATIVE       = "unsubscribe, terms, privacy policy, marketing, promotion, sale, newsletter, invoice, receipt"
@@ -579,54 +579,61 @@ else:
         )
 
     with right:
-        st.subheader("Select & export")
-        options = df["id"].tolist()
+    st.subheader("Select & export")
+    options = df["id"].tolist()
 
-        # Auto-select the first item if nothing chosen yet
-        selected = st.multiselect(
-            "Pick event ids",
-            options=options,
-            default=([options[0]] if options else []),
-            format_func=lambda x: f"{x} — {df.loc[df['id']==x,'title'].values[0]}",
+    # Auto-select the first item if nothing chosen yet
+    selected = st.multiselect(
+        "Pick event ids",
+        options=options,
+        default=([options[0]] if options else []),
+        format_func=lambda x: f"{x} — {df.loc[df['id']==x,'title'].values[0]}",
     )
 
+    # ⬅ keep this indented inside `with right:`
     chosen = df[df["id"].isin(selected)]
 
-        if chosen.empty:
-            st.caption("Select at least one event.")
-        else:
-            # .ics export
-            if st.button("Export selected as .ics", use_container_width=True):
-                cal = Calendar()
-                cal.add("prodid", "-//SchoolBoard POC//")
-                cal.add("version", "2.0")
-                for _, row in chosen.iterrows():
-                    ev = Event()
-                    start = datetime.strptime(row["start"], "%Y-%m-%d %H:%M")
-                    end   = datetime.strptime(row["end"], "%Y-%m-%d %H:%M")
-                    ev.add("summary", row["title"])
-                    ev.add("dtstart", start)
-                    ev.add("dtend", end)
-                    if row.get("location"): ev.add("location", row["location"])
-                    ev.add("description", f"From: {row['from']}\nNote: {row['note']}")
-                    cal.add_component(ev)
-                ics_bytes = cal.to_ical()
-                st.download_button("Download .ics", data=ics_bytes, file_name="school_events.ics", mime="text/calendar", use_container_width=True)
-
-            # Quick add links to Google Calendar
-            st.markdown("**Quick add to Google Calendar**")
+    if chosen.empty:
+        st.caption("Select at least one event.")
+    else:
+        # .ics export
+        if st.button("Export selected as .ics", use_container_width=True):
+            cal = Calendar()
+            cal.add("prodid", "-//SchoolBoard POC//")
+            cal.add("version", "2.0")
             for _, row in chosen.iterrows():
+                ev = Event()
                 start = datetime.strptime(row["start"], "%Y-%m-%d %H:%M")
                 end   = datetime.strptime(row["end"], "%Y-%m-%d %H:%M")
-                start_str = start.strftime("%Y%m%dT%H%M00")
-                end_str   = end.strftime("%Y%m%dT%H%M00")
-                params = {
-                    "action": "TEMPLATE",
-                    "text": row["title"],
-                    "dates": f"{start_str}/{end_str}",
-                    "details": f"{row['note']} (from {row['from']})",
-                }
-                if isinstance(row.get("location"), str) and row["location"].strip():
-                    params["location"] = row["location"].strip()
-                url = "https://www.google.com/calendar/render?" + urlencode(params)
-                st.markdown(f"- {row['title']} — {row['start']}  [Add to Google Calendar]({url})")
+                ev.add("summary", row["title"])
+                ev.add("dtstart", start)
+                ev.add("dtend", end)
+                if row.get("location"): ev.add("location", row["location"])
+                ev.add("description", f"From: {row['from']}\nNote: {row['note']}")
+                cal.add_component(ev)
+            ics_bytes = cal.to_ical()
+            st.download_button(
+                "Download .ics",
+                data=ics_bytes,
+                file_name="school_events.ics",
+                mime="text/calendar",
+                use_container_width=True,
+            )
+
+        # Quick add links to Google Calendar
+        st.markdown("**Quick add to Google Calendar**")
+        for _, row in chosen.iterrows():
+            start = datetime.strptime(row["start"], "%Y-%m-%d %H:%M")
+            end   = datetime.strptime(row["end"], "%Y-%m-%d %H:%M")
+            start_str = start.strftime("%Y%m%dT%H%M00")
+            end_str   = end.strftime("%Y%m%dT%H%M00")
+            params = {
+                "action": "TEMPLATE",
+                "text": row["title"],
+                "dates": f"{start_str}/{end_str}",
+                "details": f"{row['note']} (from {row['from']})",
+            }
+            if isinstance(row.get("location"), str) and row["location"].strip():
+                params["location"] = row["location"].strip()
+            url = "https://www.google.com/calendar/render?" + urlencode(params)
+            st.markdown(f"- {row['title']} — {row['start']}  [Add to Google Calendar]({url})")
