@@ -1,11 +1,11 @@
-# school_board_poc.py — Refined Gmail OAuth + IMAP fallback + Gemini + Live refresh
+# school_board_poc.py — Final Version
 # Features:
-# - Sign in with Google (Gmail API) so each user uses their own account
-# - IMAP fallback (App Password) for local/testing
+# - Sign in with Google (Gmail API)
+# - IMAP fallback for local/testing
 # - Gemini (optional) to extract structured events + urgency
 # - Urgency badges, .ics export, "Add to Google Calendar" links
 # - Auto-refresh monitor
-# - School email filters
+# - Dynamic filtering for precise email fetching
 
 # --- Standard libs
 import os
@@ -456,14 +456,12 @@ st.caption("Inbox → activities with filters and optional AI extraction.")
 
 # ---------- Fetch path ----------
 if creds:
-    # Build a focused Gmail query using sidebar filters.
-    # Start with a conservative base: Primary tab, last 30 days, exclude common noise.
+    # --- FIX 1: Dynamic query builder to make Gmail API search precise ---
     base_parts = [
         "label:inbox",
         "newer_than:30d",
         "-category:promotions",
     ]
-    # Add sender filters (domains + exact emails) as a single OR group
     from_terms = []
     for d in [x.strip() for x in (domain_str or "").split(",") if x.strip()]:
         from_terms.append(f"from:{d}")
@@ -471,11 +469,9 @@ if creds:
         from_terms.append(f"from:{s}")
     if from_terms:
         base_parts.append("(" + " OR ".join(from_terms) + ")")
-    # Add “must contain” keywords as a single OR group (searches subject/body)
     must_terms = [x.strip() for x in (kw_str or "").split(",") if x.strip()]
     if must_terms:
         base_parts.append("(" + " OR ".join(must_terms) + ")")
-    # Add negative keywords as explicit NOT terms
     neg_terms = [x.strip() for x in (neg_str or "").split(",") if x.strip()]
     for t in neg_terms:
         base_parts.append(f"-{t}")
@@ -488,7 +484,7 @@ if creds:
             max_results=60,
         )
 else:
-    # IMAP fallback path stays the same
+    # IMAP fallback path
     result = fetch_emails(search_mode=fetch_mode, since_days=int(since_days))
     if "error" not in result:
         emails_list = result.get("emails", [])
@@ -546,6 +542,7 @@ else:
         badge_txt = "🔴 High" if score >= 80 else ("🟡 Medium" if score >= 60 else "🟢 Low")
         badge_class = "high" if score >= 80 else ("med" if score >= 60 else "low")
         from_raw = ev.get("source_from", "")
+        # --- FIX 2: Sanitize 'from' email to prevent HTML errors ---
         from_sanitized = re.sub(r'[^a-zA-Z0-9_-]', '-', from_raw).lower()
         rows.append({
             "id": i + 1,
@@ -571,10 +568,11 @@ else:
 
     tab_cards, tab_raw = st.tabs(["Activities", "Raw emails"])
 
-with tab_cards:
-        # Step 1: Define multiselect and selected variable BEFORE the columns.
+    # --- FIX 3: Corrected layout and variable scope ---
+    with tab_cards:
+        # Define multiselect and selected variable BEFORE columns
         options = df["id"].tolist()
-        select_all = st.checkbox("Select all", value=True)
+        select_all = st.checkbox("Select all", value=True, key="select_all_checkbox")
         default_ids = options if select_all else []
         selected = st.multiselect(
             "Pick event ids",
@@ -583,51 +581,11 @@ with tab_cards:
             format_func=lambda x: f"{x} — {df.loc[df['id']==x,'title'].values[0]}",
         )
         selected_ids = set(selected)
-
-        # Step 2: Create columns and render content using the already-defined variables.
+        
         left, right = st.columns([3, 1], gap="large")
-
+        
         with right:
             st.subheader("Actions")
-            chosen = df[df["id"].isin(selected)]
-            st.caption(f"Selected: **{len(chosen)}**")
-            # ... (rest of the `with right:` block, which is already correct) ...
-
-        with left:
-            st.subheader("Detected activities")
-            # The `selected_ids` variable is now correctly defined and accessible.
-            for _, row in df.iterrows():
-                level = "high" if row["urgency_score"] >= 80 else ("med" if row["urgency_score"] >= 60 else "low")
-                tag = f'<span class="sb-badge {row["badge_class"]}">{row["badge_txt"]}</span>'
-                picked = "✅" if row["id"] in selected_ids else "◻️"
-                card_id = f"card-{row['from_sanitized']}-{row['id']}"
-                loc = (row["location"] or "").strip()
-                loc_line = f"<br><b>Location:</b> {loc}" if loc else ""
-                st.markdown(
-                    f"""
-                    <div id="{card_id}" class="sb-card {level}">
-                        <h4 class="title">{picked} {esc(row['title'])}</h4>
-                        <p class="meta">
-                            <b>Start:</b> {esc(row['start'])}  •  <b>End:</b> {esc(row['end'])}  •  <b>Type:</b> {esc(row['type'])} {tag}
-                            {loc_line}<br>
-                            <b>From:</b> {esc(row['from'])}
-                        </p>
-                        <span class="sb-badge">#{row['id']}</span>
-                    </div>
-                    """,
-                    unsafe_allow_html=True,
-                )
-        with right:
-            st.subheader("Actions")
-            options = df["id"].tolist()
-            select_all = st.checkbox("Select all", value=True)
-            default_ids = options if select_all else []
-            selected = st.multiselect(
-                "Pick event ids",
-                options=options,
-                default=default_ids,
-                format_func=lambda x: f"{x} — {df.loc[df['id']==x,'title'].values[0]}",
-            )
             chosen = df[df["id"].isin(selected)]
             st.caption(f"Selected: **{len(chosen)}**")
             if chosen.empty:
@@ -676,7 +634,6 @@ with tab_cards:
                     st.markdown(f"- {safe_title} — {safe_start}  [Add to Google Calendar]({url})")
         with left:
             st.subheader("Detected activities")
-            selected_ids = set(selected)
             for _, row in df.iterrows():
                 level = "high" if row["urgency_score"] >= 80 else ("med" if row["urgency_score"] >= 60 else "low")
                 tag = f'<span class="sb-badge {row["badge_class"]}">{row["badge_txt"]}</span>'
