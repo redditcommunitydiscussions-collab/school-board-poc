@@ -1,4 +1,11 @@
-# school_board_poc.py — Refined Gmail OAuth + IMAP fallback + Gemini + Live refresh
+# school_board_poc.py — Gmail OAuth + IMAP fallback + Gemini + Live refresh
+# Features:
+# - Sign in with Google (Gmail API) so each user uses their own account
+# - IMAP fallback (App Password) for local/testing
+# - Gemini (optional) to extract structured events + urgency
+# - Urgency badges, .ics export, "Add to Google Calendar" links
+# - Auto-refresh monitor
+# - School email filters
 
 # --- Standard libs
 import os
@@ -8,6 +15,11 @@ import base64
 from datetime import datetime, timedelta
 from urllib.parse import urlencode
 
+# --- Email/IMAP
+import imaplib
+import email as _email
+from email.header import decode_header
+
 # --- Streamlit & friends
 import streamlit as st
 from streamlit_autorefresh import st_autorefresh
@@ -15,11 +27,6 @@ import pandas as pd
 import dateparser
 from icalendar import Calendar, Event
 from dotenv import load_dotenv
-
-# --- Email/IMAP
-import imaplib
-import email as _email
-from email.header import decode_header
 
 # --- Google APIs (OAuth + Gmail/Calendar)
 from google.oauth2.credentials import Credentials
@@ -70,7 +77,7 @@ MAX_EMAILS = int(env("MAX_EMAILS", "80"))
 
 # Filter defaults
 DEFAULT_SCHOOL_DOMAINS = ""
-DEFAULT_SCHOOL_SENDERS = ""
+DEFAULT_SCHOOL_SENDERS = ""  # e.g., "teacher@myschool.org, principal@district.k12.tx.us"
 DEFAULT_KEYWORDS       = "school, pta, teacher, classroom, homeroom, field trip, permission slip, bus, assembly, cafeteria, counselor, principal, due, forms"
 DEFAULT_NEGATIVE       = "unsubscribe, terms, privacy policy, marketing, promotion, sale, newsletter, invoice, receipt"
 
@@ -92,11 +99,12 @@ def start_login_button():
     auth_url, _ = flow.authorization_url(
         access_type="offline",
         prompt="consent",
-        include_granted_scopes="true",
+        include_granted_scopes="true",   # <-- must be the string "true" (lowercase)
     )
     st.link_button("Continue with Google", auth_url, use_container_width=True)
 
 def finish_login_if_callback():
+    # On Streamlit Cloud or local, Google redirects with ?code=...
     code = st.query_params.get("code")
     if not code:
         return None
@@ -111,6 +119,7 @@ def finish_login_if_callback():
         "client_secret": creds.client_secret,
         "scopes": creds.scopes,
     }
+    # Clean URL so refreshes don't try to re-complete OAuth
     st.query_params.clear()
     return creds
 
@@ -122,26 +131,20 @@ def current_creds():
 
 # ---------- Gmail API fetch (OAuth path) ----------
 @st.cache_data(ttl=5)
-def fetch_emails_gmailapi(token_blob: dict, query="", max_results=80):
+def fetch_emails_gmailapi(token_blob: dict, query="label:inbox newer_than:14d -category:promotions", max_results=80):
     creds = Credentials(**token_blob)
     service = build("gmail", "v1", credentials=creds)
-    
-    # Check if the query is empty; if so, default to a sensible search
-    # to avoid pulling the entire inbox.
-    if not query.strip():
-        query = "label:inbox newer_than:14d -category:promotions"
-    
     resp = service.users().messages().list(userId="me", q=query, maxResults=max_results).execute()
     msgs = resp.get("messages", [])
-    
     emails, uids = [], []
     for m in msgs:
         msg = service.users().messages().get(userId="me", id=m["id"], format="full").execute()
         headers = {h["name"]: h["value"] for h in msg["payload"].get("headers", [])}
         subject = headers.get("Subject", "")
-        from_  = headers.get("From", "")
-        date_  = headers.get("Date", "")
+        from_   = headers.get("From", "")
+        date_   = headers.get("Date", "")
 
+        # Extract text/plain parts
         body_text = ""
         def walk_parts(p):
             nonlocal body_text
@@ -158,6 +161,10 @@ def fetch_emails_gmailapi(token_blob: dict, query="", max_results=80):
     return {"emails": emails, "uids": uids}
 
 # ---------- IMAP fallback fetch ----------
+import imaplib
+import email as _email
+from email.header import decode_header
+
 @st.cache_data(ttl=5)
 def fetch_emails(search_mode="ALL", since_days=7):
     """
@@ -185,9 +192,10 @@ def fetch_emails(search_mode="ALL", since_days=7):
             mail.logout()
             return {"emails": [], "uids": []}
 
-        ids = data[0].split()[-MAX_EMAILS:]
+        ids = data[0].split()[-MAX_EMAILS:]  # most recent N
         emails, uids = [], []
         for num in reversed(ids):
+            # PEEK = do not mark as read
             typ, msg_data = mail.fetch(num, '(BODY.PEEK[])')
             if typ != "OK":
                 continue
@@ -311,13 +319,16 @@ def looks_like_school(email_item, domain_str, sender_str, kw_str, neg_str):
     dom  = m.group(1) if m else ""
     addr = m.group(0) if m else from_raw
 
+    # Exclude by negative keywords
     for bad in neg_kws:
         if bad and (bad in subject or bad in body):
             return False
 
+    # Keyword check
     text = subject + " " + body
     kw_ok = any(kw in text for kw in must_kws) if must_kws else True
 
+    # Sender domain/exact
     sender_ok = False
     if addr and addr in senders:
         sender_ok = True
@@ -327,6 +338,7 @@ def looks_like_school(email_item, domain_str, sender_str, kw_str, neg_str):
                 sender_ok = True
                 break
 
+    # Forwarded by me + keywords → allow
     my_addr = (IMAP_USER or "").lower()
     if my_addr and my_addr in from_raw and kw_ok:
         return True
@@ -376,7 +388,7 @@ Email Body:
         data = json.loads(text)
         out = []
         for ev in data.get("events", []):
-            title  = ev.get("title") or "School event"
+            title   = ev.get("title") or "School event"
             start_s = ev.get("start")
             end_s   = ev.get("end")
             dt_start = dateparser.parse(start_s, settings={"PREFER_DATES_FROM": "future"}) if start_s else None
@@ -438,25 +450,25 @@ with st.sidebar:
     st.header("School filters")
     domain_str = st.text_input(
         "Sender domains (comma-separated)",
-        value=DEFAULT_SCHOOL_DOMAINS,
+        value="",
         placeholder="eanes.org, myschool.org, school.edu, k12.tx.us, pta.org",
         help="Match on email sender domains. Example: eanes.org",
     )
     sender_str = st.text_input(
         "Exact sender emails (comma-separated)",
-        value=DEFAULT_SCHOOL_SENDERS,
+        value="",
         placeholder="teacher@myschool.org, principal@district.k12.tx.us",
         help="Full email addresses for precise matching.",
     )
     kw_str = st.text_input(
         "Must contain keywords (comma-separated)",
-        value=DEFAULT_KEYWORDS,
+        value="",
         placeholder="school, pta, teacher, classroom, field trip, due, forms",
         help="Email must contain at least one of these words.",
     )
     neg_str = st.text_input(
         "Exclude if contains (comma-separated)",
-        value=DEFAULT_NEGATIVE,
+        value="",
         placeholder="unsubscribe, terms, privacy, marketing, promotions, newsletter, invoice, receipt",
         help="If any of these words appear, the email is ignored.",
     )
@@ -476,31 +488,9 @@ st.caption("Inbox → activities with filters and optional AI extraction.")
 
 # ---------- Fetch path ----------
 if creds:
-    # --- New logic: Construct a precise Gmail API query
-    query_parts = ["label:inbox", "newer_than:14d"]
-    # Add negative keywords
-    for k in _norm_split(neg_str):
-        query_parts.append(f"-{k}")
-    # Add sender domains/emails (using OR)
-    from_list = _norm_split(domain_str) + _norm_split(sender_str)
-    if from_list:
-        query_parts.append("(" + " OR ".join([f"from:{f}" for f in from_list]) + ")")
-    # Add must-contain keywords (using OR)
-    kw_list = _norm_split(kw_str)
-    if kw_list:
-        query_parts.append("(" + " OR ".join(kw_list) + ")")
-    
-    final_query = " ".join(query_parts)
-    st.info(f"Using Gmail API query: `{final_query}`")
-    result = fetch_emails_gmailapi(st.session_state["google_creds"], query=final_query)
+    result = fetch_emails_gmailapi(st.session_state["google_creds"])
 else:
-    # --- Original IMAP fallback
     result = fetch_emails(search_mode=fetch_mode, since_days=int(since_days))
-    # For IMAP, we still need to filter manually
-    if "error" not in result:
-        emails_list = result.get("emails", [])
-        filtered_emails = [e for e in emails_list if looks_like_school(e, domain_str, sender_str, kw_str, neg_str)]
-        result["emails"] = filtered_emails
 
 if "error" in result:
     st.error("Email read error: " + result["error"])
@@ -518,6 +508,11 @@ else:
     if new:
         st.toast(f"📬 {len(new)} new email(s)", icon="✉️")
         st.session_state["last_uids"].update(new)
+
+# Filter before parsing
+filtered = [e for e in emails if looks_like_school(e, domain_str, sender_str, kw_str, neg_str)]
+st.caption(f"After filtering: {len(filtered)} email(s).")
+emails = filtered
 
 # Build events (Gemini first, fallback regex)
 all_events = []
@@ -543,15 +538,17 @@ for e in emails:
 # ---------- UI: dashboard + cards ----------
 # Header KPIs
 st.markdown("## 📚 School Activity Board")
-k1, k2, k3 = st.columns([1,1,2])
-with k1: st.metric("Emails Found", len(emails))
-with k2: st.metric("Detected events", len(all_events))
-with k3: st.caption("Inbox → activities with filters and optional AI extraction.")
+k1, k2, k3, k4 = st.columns([1,1,1,2])
+with k1: st.metric("Fetched", len(result.get("emails", [])))
+with k2: st.metric("After filters", len(emails))
+with k3: st.metric("Detected events", len(all_events))
+with k4: st.caption("Inbox → activities with filters and optional AI extraction.")
 st.divider()
 
 if not all_events:
-    st.info("No activities detected. Adjust filters or preview emails.")
+    st.info("No activities detected. Loosen filters or preview emails.")
 else:
+    # Build DF for UI
     rows = []
     for i, ev in enumerate(all_events):
         score = int(ev.get("urgency_score", 0))
@@ -572,14 +569,17 @@ else:
         })
     df = pd.DataFrame(rows)
 
+    # Sort control
     sort_choice = st.radio("Sort by", ["Urgency (High→Low)", "Start time (Soonest first)"], horizontal=True)
     if sort_choice.startswith("Urgency"):
         df = df.sort_values(by=["urgency_score", "start"], ascending=[False, True]).reset_index(drop=True)
     else:
         df = df.sort_values(by="start", ascending=True).reset_index(drop=True)
 
+    # Tabs
     tab_cards, tab_raw = st.tabs(["Activities", "Raw emails"])
 
+    # ----------------- Activities tab -----------------
     with tab_cards:
         left, right = st.columns([3, 1], gap="large")
 
@@ -587,6 +587,7 @@ else:
             st.subheader("Actions")
             options = df["id"].tolist()
 
+            # Select-all UX
             select_all = st.checkbox("Select all", value=True)
             default_ids = options if select_all else []
 
@@ -602,6 +603,7 @@ else:
             if chosen.empty:
                 st.caption("Choose at least one to export or add to calendar.")
             else:
+                # .ics export
                 if st.button("Export selected as .ics", use_container_width=True):
                     cal = Calendar()
                     cal.add("prodid", "-//SchoolBoard POC//")
@@ -645,6 +647,7 @@ else:
 
         with left:
             st.subheader("Detected activities")
+            # Render cards (highlight if selected)
             selected_ids = set(selected)
             for _, row in df.iterrows():
                 level = "high" if row["urgency_score"] >= 80 else ("med" if row["urgency_score"] >= 60 else "low")
@@ -667,6 +670,7 @@ else:
                     unsafe_allow_html=True,
                 )
 
+    # ----------------- Raw emails tab -----------------
     with tab_raw:
         st.subheader("Raw email preview")
         if not emails:
