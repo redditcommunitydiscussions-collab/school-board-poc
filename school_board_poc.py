@@ -501,6 +501,7 @@ if creds:
         "-category:social",
         "-category:forums",
         "-category:promotions",
+        'subject:("school" OR "pta" OR "teacher" OR "calendar" OR "due" OR "test")'
         # Strip obvious bulk words in Gmail query itself to reduce post-filtering load
         '-{unsubscribe OR newsletter OR "no-reply" OR receipt OR invoice OR sale OR offer OR promo OR marketing}',
     ]
