@@ -707,8 +707,8 @@ else:
                         params["location"] = (row.get("location") or "").strip()
                     url = "https://www.google.com/calendar/render?" + urlencode(params)
                     safe_title = esc(row["title"])
-safe_start = esc(row["start"])
-st.markdown(f"- {safe_title} — {safe_start}  [Add to Google Calendar]({url})")
+                    safe_start = esc(row["start"])
+                    st.markdown(f"- {safe_title} — {safe_start}  [Add to Google Calendar]({url})")
 
 
 with left:
