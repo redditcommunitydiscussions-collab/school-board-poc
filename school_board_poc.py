@@ -607,9 +607,8 @@ else:
                 ev.add("summary", row["title"])
                 ev.add("dtstart", start)
                 ev.add("dtend", end)
-                if row.get("location"):
-ev.add("location", row["location"])
-                ev.add("description", f"From: {row['from']}\nNote: {row['note']}")
+                if row.get("location"): ev.add("location", row["location"])
+                    ev.add("description", f"From: {row['from']}\nNote: {row['note']}")
                 cal.add_component(ev)
             ics_bytes = cal.to_ical()
             st.download_button(
