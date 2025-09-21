@@ -570,15 +570,15 @@ else:
 
     left, right = st.columns([2, 1], gap="large")
 
-    with left:
-        st.subheader("Detected activities")
-        st.dataframe(
-            df[["id", "title", "type", "urgency", "start", "end", "location", "from", "note"]],
-            use_container_width=True,
-            hide_index=True,
-        )
+with left:
+    st.subheader("Detected activities")
+    st.dataframe(
+        df[["id", "title", "type", "urgency", "start", "end", "location", "from", "note"]],
+        use_container_width=True,
+        hide_index=True,
+    )
 
-    with right:
+with right:
     st.subheader("Select & export")
     options = df["id"].tolist()
 
@@ -607,8 +607,9 @@ else:
                 ev.add("summary", row["title"])
                 ev.add("dtstart", start)
                 ev.add("dtend", end)
-                if row.get("location"): ev.add("location", row["location"])
-                    ev.add("description", f"From: {row['from']}\nNote: {row['note']}")
+                if row.get("location"):
+                    ev.add("location", row["location"])
+                ev.add("description", f"From: {row['from']}\nNote: {row['note']}")
                 cal.add_component(ev)
             ics_bytes = cal.to_ical()
             st.download_button(
