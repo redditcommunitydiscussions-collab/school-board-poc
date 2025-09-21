@@ -97,9 +97,9 @@ def _oauth_flow() -> Flow:
 def start_login_button():
     flow = _oauth_flow()
     auth_url, _ = flow.authorization_url(
-        access_type="offline",           # get refresh_token
-        include_granted_scopes=True,
-        prompt="consent"                 # ensure refresh_token is issued
+        access_type="offline",
+        prompt="consent",
+        include_granted_scopes="true",   # <-- must be the string "true" (lowercase)
     )
     st.link_button("Continue with Google", auth_url, use_container_width=True)
 
