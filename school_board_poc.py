@@ -82,7 +82,7 @@ MAX_EMAILS = int(env("MAX_EMAILS", "80"))
 DEFAULT_SCHOOL_DOMAINS = ""
 DEFAULT_SCHOOL_SENDERS = ""  # e.g., "teacher@myschool.org, principal@district.k12.tx.us"
 DEFAULT_KEYWORDS       = "school, pta, teacher, classroom, homeroom, field trip, permission slip, bus, assembly, cafeteria, counselor, principal, due, forms"
-DEFAULT_NEGATIVE       = "unsubscribe, terms, privacy policy, marketing, promotion, sale, newsletter, invoice, receipt"
+DEFAULT_NEGATIVE       = "unsubscribe, newsletter, receipt, invoice, sale, offer, promo, marketing, career, job, hiring, linkedin"
 
 # ---------- OAuth helpers ----------
 def _oauth_flow() -> Flow:
@@ -490,10 +490,56 @@ st.title("School Activity Board")
 st.caption("Inbox → activities with filters and optional AI extraction.")
 
 # ---------- Fetch path ----------
+# ---------- Fetch path ----------
 if creds:
-    result = fetch_emails_gmailapi(st.session_state["google_creds"])
+    # Build a focused Gmail query using sidebar filters.
+    # Start with a conservative base: Primary tab, last 30 days, exclude common noise.
+    base_parts = [
+        "label:inbox",
+        "newer_than:30d",
+        "category:primary",
+        "-category:social",
+        "-category:forums",
+        "-category:promotions",
+        # Strip obvious bulk words in Gmail query itself to reduce post-filtering load
+        '-{unsubscribe OR newsletter OR "no-reply" OR receipt OR invoice OR sale OR offer OR promo OR marketing}',
+    ]
+
+    # Add sender filters (domains + exact emails) as a single OR group
+    from_terms = []
+    for d in [x.strip() for x in (domain_str or "").split(",") if x.strip()]:
+        from_terms.append(f"from:{d}")
+    for s in [x.strip() for x in (sender_str or "").split(",") if x.strip()]:
+        from_terms.append(f"from:{s}")
+    if from_terms:
+        base_parts.append("(" + " OR ".join(from_terms) + ")")
+
+    # Add “must contain” keywords as a single OR group (searches subject/body)
+    must_terms = [x.strip() for x in (kw_str or "").split(",") if x.strip()]
+    if must_terms:
+        base_parts.append("(" + " OR ".join(must_terms) + ")")
+
+    # Add negative keywords as explicit NOT terms
+    neg_terms = [x.strip() for x in (neg_str or "").split(",") if x.strip()]
+    for t in neg_terms:
+        base_parts.append(f"-{t}")
+
+    final_query = " ".join(base_parts)
+
+    with st.spinner(f"Fetching via Gmail API (query: {final_query})…"):
+        result = fetch_emails_gmailapi(
+            st.session_state["google_creds"],
+            query=final_query,
+            max_results=60,   # tighten if you want even fewer
+        )
 else:
+    # IMAP fallback path stays the same
     result = fetch_emails(search_mode=fetch_mode, since_days=int(since_days))
+    if "error" not in result:
+        emails_list = result.get("emails", [])
+        filtered_emails = [e for e in emails_list if looks_like_school(e, domain_str, sender_str, kw_str, neg_str)]
+        result["emails"] = filtered_emails
+
 
 if "error" in result:
     st.error("Email read error: " + result["error"])
