@@ -571,8 +571,52 @@ else:
 
     tab_cards, tab_raw = st.tabs(["Activities", "Raw emails"])
 
-    with tab_cards:
+with tab_cards:
+        # Step 1: Define multiselect and selected variable BEFORE the columns.
+        options = df["id"].tolist()
+        select_all = st.checkbox("Select all", value=True)
+        default_ids = options if select_all else []
+        selected = st.multiselect(
+            "Pick event ids",
+            options=options,
+            default=default_ids,
+            format_func=lambda x: f"{x} — {df.loc[df['id']==x,'title'].values[0]}",
+        )
+        selected_ids = set(selected)
+
+        # Step 2: Create columns and render content using the already-defined variables.
         left, right = st.columns([3, 1], gap="large")
+
+        with right:
+            st.subheader("Actions")
+            chosen = df[df["id"].isin(selected)]
+            st.caption(f"Selected: **{len(chosen)}**")
+            # ... (rest of the `with right:` block, which is already correct) ...
+
+        with left:
+            st.subheader("Detected activities")
+            # The `selected_ids` variable is now correctly defined and accessible.
+            for _, row in df.iterrows():
+                level = "high" if row["urgency_score"] >= 80 else ("med" if row["urgency_score"] >= 60 else "low")
+                tag = f'<span class="sb-badge {row["badge_class"]}">{row["badge_txt"]}</span>'
+                picked = "✅" if row["id"] in selected_ids else "◻️"
+                card_id = f"card-{row['from_sanitized']}-{row['id']}"
+                loc = (row["location"] or "").strip()
+                loc_line = f"<br><b>Location:</b> {loc}" if loc else ""
+                st.markdown(
+                    f"""
+                    <div id="{card_id}" class="sb-card {level}">
+                        <h4 class="title">{picked} {esc(row['title'])}</h4>
+                        <p class="meta">
+                            <b>Start:</b> {esc(row['start'])}  •  <b>End:</b> {esc(row['end'])}  •  <b>Type:</b> {esc(row['type'])} {tag}
+                            {loc_line}<br>
+                            <b>From:</b> {esc(row['from'])}
+                        </p>
+                        <span class="sb-badge">#{row['id']}</span>
+                    </div>
+                    """,
+                    unsafe_allow_html=True,
+                )
         with right:
             st.subheader("Actions")
             options = df["id"].tolist()
