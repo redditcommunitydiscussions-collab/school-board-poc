@@ -442,43 +442,43 @@ with st.sidebar:
     st.header("Live monitor")
     live_mode  = st.toggle("Auto-refresh for new emails", value=False)
     interval   = st.select_slider("Refresh every (seconds)", options=[10, 15, 20, 30, 45, 60], value=30)
-    fetch_mode = st.selectbox("IMAP fetch scope (fallback)", ["UNSEEN", "SINCE", "ALL"], help="Used only when not signed in with Google")
+    fetch_mode = st.selectbox("IMAP fetch scope (fallback)", ["UNSEEN", "SINCE", "ALL"],
+                              help="Used only when not signed in with Google")
     since_days = st.number_input("IMAP SINCE: days back", min_value=1, max_value=30, value=7, step=1)
 
     st.divider()
     st.header("School filters")
+    domain_str = st.text_input(
+        "Sender domains (comma-separated)",
+        value="",
+        placeholder="eanes.org, myschool.org, school.edu, k12.tx.us, pta.org",
+        help="Match on email sender domains. Example: eanes.org",
+    )
+    sender_str = st.text_input(
+        "Exact sender emails (comma-separated)",
+        value="",
+        placeholder="teacher@myschool.org, principal@district.k12.tx.us",
+        help="Full email addresses for precise matching.",
+    )
+    kw_str = st.text_input(
+        "Must contain keywords (comma-separated)",
+        value="",
+        placeholder="school, pta, teacher, classroom, field trip, due, forms",
+        help="Email must contain at least one of these words.",
+    )
+    neg_str = st.text_input(
+        "Exclude if contains (comma-separated)",
+        value="",
+        placeholder="unsubscribe, terms, privacy, marketing, promotions, newsletter, invoice, receipt",
+        help="If any of these words appear, the email is ignored.",
+    )
 
-domain_str = st.text_input(
-    "Sender domains (comma-separated)",
-    value="",
-    placeholder="eanes.org, myschool.org, school.edu, k12.tx.us, pta.org",
-    help="Match on email sender domains. Example: eanes.org"
-)
-
-sender_str = st.text_input(
-    "Exact sender emails (comma-separated)",
-    value="",
-    placeholder="teacher@myschool.org, principal@district.k12.tx.us",
-    help="Full email addresses for precise matching."
-)
-
-kw_str = st.text_input(
-    "Must contain keywords (comma-separated)",
-    value="",
-    placeholder="school, pta, teacher, classroom, field trip, due, forms",
-    help="Email must contain at least one of these words."
-)
-
-neg_str = st.text_input(
-    "Exclude if contains (comma-separated)",
-    value="",
-    placeholder="unsubscribe, terms, privacy, marketing, promotions, newsletter, invoice, receipt",
-    help="If any of these words appear, the email is ignored."
-)
     st.divider()
-    use_gemini = st.toggle("Use Gemini extraction (LLM)", value=bool(GEMINI_API_KEY),
-                           help="Requires GEMINI_API_KEY")
-
+    use_gemini = st.toggle(
+        "Use Gemini extraction (LLM)",
+        value=bool(GEMINI_API_KEY),
+        help="Requires GEMINI_API_KEY",
+    )
 # Timed refresh
 if live_mode:
     st_autorefresh(interval=interval * 1000, key="auto_refresh_tick")
