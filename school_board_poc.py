@@ -14,6 +14,9 @@ import json
 import base64
 from datetime import datetime, timedelta
 from urllib.parse import urlencode
+import html
+def esc(s):
+    return html.escape(str(s or ""), quote=True)
 
 # --- Email/IMAP
 import imaplib
@@ -653,42 +656,44 @@ else:
                     if isinstance(row.get("location"), str) and row["location"].strip():
                         params["location"] = row["location"].strip()
                     url = "https://www.google.com/calendar/render?" + urlencode(params)
-                    st.markdown(f"- {row['title']} — {row['start']}  [Add to Google Calendar]({url})")
+                    safe_title = esc(row["title"])
+safe_start = esc(row["start"])
+st.markdown(f"- {safe_title} — {safe_start}  [Add to Google Calendar]({url})")
 
-        with left:
-            st.subheader("Detected activities")
-            # Render cards (highlight if selected)
-# Render cards (highlight if selected)
-            selected_ids = set(selected)
-            for _, row in df.iterrows():
-                level = "high" if row["urgency_score"] >= 80 else ("med" if row["urgency_score"] >= 60 else "low")
-                tag = f'<span class="sb-badge {row["badge_class"]}">{row["badge_txt"]}</span>'
-                picked = "✅" if row["id"] in selected_ids else "◻️"
-                loc = (row["location"] or "").strip()
-                loc_line = f"<br><b>Location:</b> {loc}" if loc else ""
-                
-                # --- START MODIFICATION 2 ---
-                # Use the sanitized 'from' for a unique ID on the card
-                # This prevents invalid characters in the DOM element ID/class
-                card_id_base = f"card-{row['from_sanitized']}"
-                # Ensure each card has a unique ID, even if from the same sender
-                unique_card_id = f"{card_id_base}-{row['id']}" 
-                # --- END MODIFICATION 2 ---
 
-                st.markdown(
-                    f"""
-                    <div id="{unique_card_id}" class="sb-card {level}">
-                        <h4 class="title">{picked} {row['title']}</h4>
-                        <p class="meta">
-                            <b>Start:</b> {row['start']}  •  <b>End:</b> {row['end']}  •  <b>Type:</b> {row['type']} {tag}
-                            {loc_line}<br>
-                            <b>From:</b> {row['from']}
-                        </p>
-                        <span class="sb-badge">#{row['id']}</span>
-                    </div>
-                    """,
-                    unsafe_allow_html=True,
-                )
+with left:
+    st.subheader("Detected activities")
+    selected_ids = set(selected)
+    for _, row in df.iterrows():
+        level = "high" if row["urgency_score"] >= 80 else ("med" if row["urgency_score"] >= 60 else "low")
+        tag = f'<span class="sb-badge {row["badge_class"]}">{esc(row["badge_txt"])}</span>'
+        picked = "✅" if row["id"] in selected_ids else "◻️"
+
+        # escape everything that could contain < or >
+        title_html = esc(row["title"])
+        start_html = esc(row["start"])
+        end_html   = esc(row["end"])
+        type_html  = esc(row["type"])
+        from_html  = esc(row["from"])
+        loc        = (row.get("location") or "").strip()
+        loc_html   = esc(loc)
+        loc_line   = f"<br><b>Location:</b> {loc_html}" if loc else ""
+
+        st.markdown(
+            f"""
+            <div class="sb-card {level}">
+                <h4 class="title">{picked} {title_html}</h4>
+                <p class="meta">
+                    <b>Start:</b> {start_html}  •  <b>End:</b> {end_html}  •  <b>Type:</b> {type_html} {tag}
+                    {loc_line}<br>
+                    <b>From:</b> {from_html}
+                </p>
+                <span class="sb-badge">#{row['id']}</span>
+            </div>
+            """,
+            unsafe_allow_html=True,
+        )
+
 
     # ----------------- Raw emails tab -----------------
     with tab_raw:
@@ -699,3 +704,8 @@ else:
             for e in emails[:20]:
                 with st.expander(f"{e.get('subject','(no subject)')} — {e.get('from','')}"):
                     st.code((e.get("body") or "")[:2000])
+for e in emails[:20]:
+    subj = esc(e.get("subject","(no subject)"))
+    frm  = esc(e.get("from",""))
+    with st.expander(f"{subj} — {frm}"):
+        st.code((e.get("body") or "")[:2000])
