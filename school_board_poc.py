@@ -1,4 +1,4 @@
-# school_board_poc.py — Gmail OAuth + IMAP fallback + Gemini + Live refresh
+# school_board_poc.py — Refined Gmail OAuth + IMAP fallback + Gemini + Live refresh
 # Features:
 # - Sign in with Google (Gmail API) so each user uses their own account
 # - IMAP fallback (App Password) for local/testing
@@ -19,7 +19,6 @@ import html
 def esc(x) -> str:
     """HTML-escape any value to prevent invalid tag-name errors."""
     return html.escape("" if x is None else str(x))
-
 
 # --- Email/IMAP
 import imaplib
@@ -83,7 +82,7 @@ MAX_EMAILS = int(env("MAX_EMAILS", "80"))
 
 # Filter defaults
 DEFAULT_SCHOOL_DOMAINS = ""
-DEFAULT_SCHOOL_SENDERS = ""  # e.g., "teacher@myschool.org, principal@district.k12.tx.us"
+DEFAULT_SCHOOL_SENDERS = ""
 DEFAULT_KEYWORDS       = "school, pta, teacher, classroom, homeroom, field trip, permission slip, bus, assembly, cafeteria, counselor, principal, due, forms"
 DEFAULT_NEGATIVE       = "unsubscribe, newsletter, receipt, invoice, sale, offer, promo, marketing, career, job, hiring, linkedin"
 
@@ -105,12 +104,11 @@ def start_login_button():
     auth_url, _ = flow.authorization_url(
         access_type="offline",
         prompt="consent",
-        include_granted_scopes="true",   # <-- must be the string "true" (lowercase)
+        include_granted_scopes="true",
     )
     st.link_button("Continue with Google", auth_url, use_container_width=True)
 
 def finish_login_if_callback():
-    # On Streamlit Cloud or local, Google redirects with ?code=...
     code = st.query_params.get("code")
     if not code:
         return None
@@ -125,7 +123,6 @@ def finish_login_if_callback():
         "client_secret": creds.client_secret,
         "scopes": creds.scopes,
     }
-    # Clean URL so refreshes don't try to re-complete OAuth
     st.query_params.clear()
     return creds
 
@@ -137,9 +134,11 @@ def current_creds():
 
 # ---------- Gmail API fetch (OAuth path) ----------
 @st.cache_data(ttl=5)
-def fetch_emails_gmailapi(token_blob: dict, query="label:inbox newer_than:14d -category:promotions", max_results=80):
+def fetch_emails_gmailapi(token_blob: dict, query="", max_results=80):
     creds = Credentials(**token_blob)
     service = build("gmail", "v1", credentials=creds)
+    if not query.strip():
+        query = "label:inbox newer_than:14d -category:promotions"
     resp = service.users().messages().list(userId="me", q=query, maxResults=max_results).execute()
     msgs = resp.get("messages", [])
     emails, uids = [], []
@@ -147,10 +146,8 @@ def fetch_emails_gmailapi(token_blob: dict, query="label:inbox newer_than:14d -c
         msg = service.users().messages().get(userId="me", id=m["id"], format="full").execute()
         headers = {h["name"]: h["value"] for h in msg["payload"].get("headers", [])}
         subject = headers.get("Subject", "")
-        from_   = headers.get("From", "")
-        date_   = headers.get("Date", "")
-
-        # Extract text/plain parts
+        from_  = headers.get("From", "")
+        date_  = headers.get("Date", "")
         body_text = ""
         def walk_parts(p):
             nonlocal body_text
@@ -161,23 +158,13 @@ def fetch_emails_gmailapi(token_blob: dict, query="label:inbox newer_than:14d -c
                 if p.get("mimeType") == "text/plain" and "data" in p.get("body", {}):
                     body_text += base64.urlsafe_b64decode(p["body"]["data"]).decode("utf-8", "ignore")
         walk_parts(msg["payload"])
-
         emails.append({"subject": subject, "from": from_, "date": date_, "body": body_text})
         uids.append(m["id"])
     return {"emails": emails, "uids": uids}
 
 # ---------- IMAP fallback fetch ----------
-import imaplib
-import email as _email
-from email.header import decode_header
-
 @st.cache_data(ttl=5)
 def fetch_emails(search_mode="ALL", since_days=7):
-    """
-    search_mode: "ALL" | "UNSEEN" | "SINCE"
-    since_days: used when search_mode == "SINCE"
-    Returns: {"emails": [...], "uids": [...]}
-    """
     if not IMAP_USER or not IMAP_PASS:
         return {"error": "Set IMAP_USER and IMAP_PASS (or use Google Sign-In)"}
     try:
@@ -185,7 +172,6 @@ def fetch_emails(search_mode="ALL", since_days=7):
         mail = imaplib.IMAP4_SSL(IMAP_HOST)
         mail.login(IMAP_USER, IMAP_PASS)
         mail.select(MAILBOX)
-
         if search_mode == "UNSEEN":
             typ, data = mail.search(None, "UNSEEN")
         elif search_mode == "SINCE":
@@ -193,26 +179,21 @@ def fetch_emails(search_mode="ALL", since_days=7):
             typ, data = mail.search(None, f'(SINCE {date_str})')
         else:
             typ, data = mail.search(None, "ALL")
-
         if typ != "OK":
             mail.logout()
             return {"emails": [], "uids": []}
-
-        ids = data[0].split()[-MAX_EMAILS:]  # most recent N
+        ids = data[0].split()[-MAX_EMAILS:]
         emails, uids = [], []
         for num in reversed(ids):
-            # PEEK = do not mark as read
             typ, msg_data = mail.fetch(num, '(BODY.PEEK[])')
             if typ != "OK":
                 continue
             msg = _email.message_from_bytes(msg_data[0][1])
-
             subject, encoding = decode_header(msg.get("Subject"))[0]
             if isinstance(subject, bytes):
                 subject = subject.decode(encoding or "utf-8", errors="ignore")
             from_ = msg.get("From")
             date_ = msg.get("Date")
-
             body = ""
             if msg.is_multipart():
                 for part in msg.walk():
@@ -233,10 +214,8 @@ def fetch_emails(search_mode="ALL", since_days=7):
                         body = ""
                 else:
                     body = str(payload or "")
-
             emails.append({"subject": subject or "", "from": from_ or "", "date": date_ or "", "body": (body or "")[:20000]})
             uids.append(num.decode() if isinstance(num, bytes) else str(num))
-
         mail.logout()
         return {"emails": emails, "uids": uids}
     except Exception as e:
@@ -315,26 +294,18 @@ def looks_like_school(email_item, domain_str, sender_str, kw_str, neg_str):
     from_raw = (email_item.get("from") or "").lower()
     subject  = (email_item.get("subject") or "").lower()
     body     = (email_item.get("body") or "").lower()
-
     domains  = _norm_split(domain_str)
     senders  = _norm_split(sender_str)
     must_kws = _norm_split(kw_str)
     neg_kws  = _norm_split(neg_str)
-
     m = re.search(r'[\w\.-]+@([\w\.-]+)', from_raw)
     dom  = m.group(1) if m else ""
     addr = m.group(0) if m else from_raw
-
-    # Exclude by negative keywords
     for bad in neg_kws:
         if bad and (bad in subject or bad in body):
             return False
-
-    # Keyword check
     text = subject + " " + body
     kw_ok = any(kw in text for kw in must_kws) if must_kws else True
-
-    # Sender domain/exact
     sender_ok = False
     if addr and addr in senders:
         sender_ok = True
@@ -343,12 +314,9 @@ def looks_like_school(email_item, domain_str, sender_str, kw_str, neg_str):
             if d and dom.endswith(d):
                 sender_ok = True
                 break
-
-    # Forwarded by me + keywords → allow
     my_addr = (IMAP_USER or "").lower()
     if my_addr and my_addr in from_raw and kw_ok:
         return True
-
     if domains or senders:
         return sender_ok and kw_ok
     return kw_ok
@@ -359,7 +327,6 @@ def gemini_extract_events(subject: str, body: str):
         return []
     prompt = f"""
 You are an assistant that extracts school-related calendar items from email text.
-
 Return ONLY valid JSON with this shape and no commentary:
 {{
   "events":[
@@ -380,7 +347,6 @@ Rules:
 - If time missing, use 10:00 and set end to +60 minutes.
 - Urgency: due ≤3 days or forms → 80–100; due ≤7 days → 60–79; otherwise ≤59.
 - If nothing relevant, return {{"events":[]}} only.
-
 Email Subject: {subject}
 Email Body:
 {body}
@@ -443,7 +409,6 @@ with st.sidebar:
             start_login_button()
         else:
             st.info("OAuth not configured. Add GOOGLE_CLIENT_ID/SECRET & OAUTH_REDIRECT_URI in Secrets.")
-
     st.divider()
     st.header("Live monitor")
     live_mode  = st.toggle("Auto-refresh for new emails", value=False)
@@ -451,34 +416,32 @@ with st.sidebar:
     fetch_mode = st.selectbox("IMAP fetch scope (fallback)", ["UNSEEN", "SINCE", "ALL"],
                               help="Used only when not signed in with Google")
     since_days = st.number_input("IMAP SINCE: days back", min_value=1, max_value=30, value=7, step=1)
-
     st.divider()
     st.header("School filters")
     domain_str = st.text_input(
         "Sender domains (comma-separated)",
-        value="",
+        value=DEFAULT_SCHOOL_DOMAINS,
         placeholder="eanes.org, myschool.org, school.edu, k12.tx.us, pta.org",
         help="Match on email sender domains. Example: eanes.org",
     )
     sender_str = st.text_input(
         "Exact sender emails (comma-separated)",
-        value="",
+        value=DEFAULT_SCHOOL_SENDERS,
         placeholder="teacher@myschool.org, principal@district.k12.tx.us",
         help="Full email addresses for precise matching.",
     )
     kw_str = st.text_input(
         "Must contain keywords (comma-separated)",
-        value="",
+        value=DEFAULT_KEYWORDS,
         placeholder="school, pta, teacher, classroom, field trip, due, forms",
         help="Email must contain at least one of these words.",
     )
     neg_str = st.text_input(
         "Exclude if contains (comma-separated)",
-        value="",
-        placeholder="unsubscribe, terms, privacy, marketing, promotions, newsletter, invoice, receipt",
+        value=DEFAULT_NEGATIVE,
+        placeholder="unsubscribe, newsletter, receipt, invoice, sale, offer, promo, marketing, career, job, hiring, linkedin",
         help="If any of these words appear, the email is ignored.",
     )
-
     st.divider()
     use_gemini = st.toggle(
         "Use Gemini extraction (LLM)",
@@ -488,11 +451,9 @@ with st.sidebar:
 # Timed refresh
 if live_mode:
     st_autorefresh(interval=interval * 1000, key="auto_refresh_tick")
-
 st.title("School Activity Board")
 st.caption("Inbox → activities with filters and optional AI extraction.")
 
-# ---------- Fetch path ----------
 # ---------- Fetch path ----------
 if creds:
     # Build a focused Gmail query using sidebar filters.
@@ -500,15 +461,8 @@ if creds:
     base_parts = [
         "label:inbox",
         "newer_than:30d",
-        "category:primary",
-        "-category:social",
-        "-category:forums",
         "-category:promotions",
-        'subject:("school" OR "pta" OR "teacher" OR "calendar" OR "due" OR "test")'
-        # Strip obvious bulk words in Gmail query itself to reduce post-filtering load
-        '-{unsubscribe OR newsletter OR "no-reply" OR receipt OR invoice OR sale OR offer OR promo OR marketing}',
     ]
-
     # Add sender filters (domains + exact emails) as a single OR group
     from_terms = []
     for d in [x.strip() for x in (domain_str or "").split(",") if x.strip()]:
@@ -517,24 +471,21 @@ if creds:
         from_terms.append(f"from:{s}")
     if from_terms:
         base_parts.append("(" + " OR ".join(from_terms) + ")")
-
     # Add “must contain” keywords as a single OR group (searches subject/body)
     must_terms = [x.strip() for x in (kw_str or "").split(",") if x.strip()]
     if must_terms:
         base_parts.append("(" + " OR ".join(must_terms) + ")")
-
     # Add negative keywords as explicit NOT terms
     neg_terms = [x.strip() for x in (neg_str or "").split(",") if x.strip()]
     for t in neg_terms:
         base_parts.append(f"-{t}")
-
     final_query = " ".join(base_parts)
-
-    with st.spinner(f"Fetching via Gmail API (query: {final_query})…"):
+    st.info(f"Using Gmail API query: `{final_query}`")
+    with st.spinner("Fetching via Gmail API..."):
         result = fetch_emails_gmailapi(
             st.session_state["google_creds"],
             query=final_query,
-            max_results=60,   # tighten if you want even fewer
+            max_results=60,
         )
 else:
     # IMAP fallback path stays the same
@@ -544,16 +495,12 @@ else:
         filtered_emails = [e for e in emails_list if looks_like_school(e, domain_str, sender_str, kw_str, neg_str)]
         result["emails"] = filtered_emails
 
-
 if "error" in result:
     st.error("Email read error: " + result["error"])
     st.stop()
-
 emails = result.get("emails", [])
 uids   = result.get("uids", [])
 st.caption(f"Fetched {len(emails)} email(s).")
-
-# New mail toast
 if "last_uids" not in st.session_state:
     st.session_state["last_uids"] = set(uids)
 else:
@@ -561,13 +508,6 @@ else:
     if new:
         st.toast(f"📬 {len(new)} new email(s)", icon="✉️")
         st.session_state["last_uids"].update(new)
-
-# Filter before parsing
-filtered = [e for e in emails if looks_like_school(e, domain_str, sender_str, kw_str, neg_str)]
-st.caption(f"After filtering: {len(filtered)} email(s).")
-emails = filtered
-
-# Build events (Gemini first, fallback regex)
 all_events = []
 for e in emails:
     subj = e.get("subject") or ""
@@ -588,34 +528,25 @@ for e in emails:
         all_events.append(ev)
 
 # ---------- UI: two-column layout ----------
-# ---------- UI: dashboard + cards ----------
 # Header KPIs
 st.markdown("## 📚 School Activity Board")
-k1, k2, k3, k4 = st.columns([1,1,1,2])
-with k1: st.metric("Fetched", len(result.get("emails", [])))
-with k2: st.metric("After filters", len(emails))
-with k3: st.metric("Detected events", len(all_events))
-with k4: st.caption("Inbox → activities with filters and optional AI extraction.")
+k1, k2, k3 = st.columns([1,1,2])
+with k1: st.metric("Emails Found", len(emails))
+with k2: st.metric("Detected events", len(all_events))
+with k3: st.caption("Inbox → activities with filters and optional AI extraction.")
 st.divider()
 
 if not all_events:
-    st.info("No activities detected. Loosen filters or preview emails.")
+    st.info("No activities detected. Adjust filters or preview emails.")
 else:
     # Build DF for UI
-# Build DF for UI
     rows = []
     for i, ev in enumerate(all_events):
         score = int(ev.get("urgency_score", 0))
         badge_txt = "🔴 High" if score >= 80 else ("🟡 Medium" if score >= 60 else "🟢 Low")
         badge_class = "high" if score >= 80 else ("med" if score >= 60 else "low")
-        
-        # --- START MODIFICATION 1 ---
-        # Sanitize the 'from' email for use in HTML attributes
-        # This replaces characters like '@' and '.' with hyphens, making them safe for IDs/classes
         from_raw = ev.get("source_from", "")
-        from_sanitized = re.sub(r'[^a-zA-Z0-9_-]', '-', from_raw).lower() # Keep alphanumeric, hyphens, underscores
-        # --- END MODIFICATION 1 ---
-
+        from_sanitized = re.sub(r'[^a-zA-Z0-9_-]', '-', from_raw).lower()
         rows.append({
             "id": i + 1,
             "title": ev.get("title", "School event"),
@@ -626,34 +557,27 @@ else:
             "start": ev["start"].strftime("%Y-%m-%d %H:%M"),
             "end": ev["end"].strftime("%Y-%m-%d %H:%M"),
             "location": ev.get("location", ""),
-            "from": from_raw, # Keep original 'from' for display
-            "from_sanitized": from_sanitized, # Add sanitized 'from'
+            "from": from_raw,
+            "from_sanitized": from_sanitized,
             "note": ev.get("notes") or ev.get("raw_line", ""),
         })
     df = pd.DataFrame(rows)
 
-    # Sort control
     sort_choice = st.radio("Sort by", ["Urgency (High→Low)", "Start time (Soonest first)"], horizontal=True)
     if sort_choice.startswith("Urgency"):
         df = df.sort_values(by=["urgency_score", "start"], ascending=[False, True]).reset_index(drop=True)
     else:
         df = df.sort_values(by="start", ascending=True).reset_index(drop=True)
 
-    # Tabs
     tab_cards, tab_raw = st.tabs(["Activities", "Raw emails"])
 
-    # ----------------- Activities tab -----------------
     with tab_cards:
         left, right = st.columns([3, 1], gap="large")
-
         with right:
             st.subheader("Actions")
             options = df["id"].tolist()
-
-            # Select-all UX
             select_all = st.checkbox("Select all", value=True)
             default_ids = options if select_all else []
-
             selected = st.multiselect(
                 "Pick event ids",
                 options=options,
@@ -662,11 +586,9 @@ else:
             )
             chosen = df[df["id"].isin(selected)]
             st.caption(f"Selected: **{len(chosen)}**")
-
             if chosen.empty:
                 st.caption("Choose at least one to export or add to calendar.")
             else:
-                # .ics export
                 if st.button("Export selected as .ics", use_container_width=True):
                     cal = Calendar()
                     cal.add("prodid", "-//SchoolBoard POC//")
@@ -690,7 +612,6 @@ else:
                         mime="text/calendar",
                         use_container_width=True,
                     )
-
                 st.markdown("**Quick add to Google Calendar**")
                 for _, row in chosen.iterrows():
                     start = datetime.strptime(row["start"], "%Y-%m-%d %H:%M")
@@ -709,58 +630,37 @@ else:
                     safe_title = esc(row["title"])
                     safe_start = esc(row["start"])
                     st.markdown(f"- {safe_title} — {safe_start}  [Add to Google Calendar]({url})")
-
-left, _ = st.columns([1, 3])  # You can change proportions
-with left:
-    st.subheader("Detected activities")
-    selected = []  # <--- Define this before the loop
-    for _, row in df.iterrows():
-        checkbox_label = f"{row['title']} — {row['start']}"
-        if st.checkbox(checkbox_label, key=row["id"]):  # or some unique identifier
-           selected.append(row["id"])
-    selected_ids = set(selected)
-    for _, row in df.iterrows():
-        level = "high" if row["urgency_score"] >= 80 else ("med" if row["urgency_score"] >= 60 else "low")
-        tag = f'<span class="sb-badge {row["badge_class"]}">{row["badge_txt"]}</span>'
-        picked = "✅" if row["id"] in selected_ids else "◻️"
-
-        # NEW: escape everything that goes into HTML
-        safe_title = esc(row["title"])
-        safe_type  = esc(row["type"])
-        safe_start = esc(row["start"])
-        safe_end   = esc(row["end"])
-        safe_from  = esc(row["from"])
-        safe_loc   = esc(row.get("location", ""))
-
-        loc_line = f"<br><b>Location:</b> {safe_loc}" if safe_loc else ""
-
-        st.markdown(
-            f"""
-            <div class="sb-card {level}">
-                <h4 class="title">{picked} {safe_title}</h4>
-                <p class="meta">
-                    <b>Start:</b> {safe_start}  •  <b>End:</b> {safe_end}  •  <b>Type:</b> {safe_type} {tag}
-                    {loc_line}<br>
-                    <b>From:</b> {safe_from}
-                </p>
-                <span class="sb-badge">#{row['id']}</span>
-            </div>
-            """,
-            unsafe_allow_html=True,
-        )
-
-
-    # ----------------- Raw emails tab -----------------
+        with left:
+            st.subheader("Detected activities")
+            selected_ids = set(selected)
+            for _, row in df.iterrows():
+                level = "high" if row["urgency_score"] >= 80 else ("med" if row["urgency_score"] >= 60 else "low")
+                tag = f'<span class="sb-badge {row["badge_class"]}">{row["badge_txt"]}</span>'
+                picked = "✅" if row["id"] in selected_ids else "◻️"
+                card_id = f"card-{row['from_sanitized']}-{row['id']}"
+                loc = (row["location"] or "").strip()
+                loc_line = f"<br><b>Location:</b> {loc}" if loc else ""
+                st.markdown(
+                    f"""
+                    <div id="{card_id}" class="sb-card {level}">
+                        <h4 class="title">{picked} {esc(row['title'])}</h4>
+                        <p class="meta">
+                            <b>Start:</b> {esc(row['start'])}  •  <b>End:</b> {esc(row['end'])}  •  <b>Type:</b> {esc(row['type'])} {tag}
+                            {loc_line}<br>
+                            <b>From:</b> {esc(row['from'])}
+                        </p>
+                        <span class="sb-badge">#{row['id']}</span>
+                    </div>
+                    """,
+                    unsafe_allow_html=True,
+                )
     with tab_raw:
         st.subheader("Raw email preview")
         if not emails:
             st.caption("No emails to preview.")
         else:
             for e in emails[:20]:
-                with st.expander(f"{e.get('subject','(no subject)')} — {e.get('from','')}"):
+                subj = esc(e.get("subject","(no subject)"))
+                frm  = esc(e.get("from",""))
+                with st.expander(f"{subj} — {frm}"):
                     st.code((e.get("body") or "")[:2000])
-for e in emails[:20]:
-    subj = esc(e.get("subject","(no subject)"))
-    frm  = esc(e.get("from",""))
-    with st.expander(f"{subj} — {frm}"):
-        st.code((e.get("body") or "")[:2000])
