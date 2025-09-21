@@ -710,7 +710,7 @@ else:
                     safe_start = esc(row["start"])
                     st.markdown(f"- {safe_title} — {safe_start}  [Add to Google Calendar]({url})")
 
-
+left, _ = st.columns([1, 3])  # You can change proportions
 with left:
     st.subheader("Detected activities")
     selected_ids = set(selected)
