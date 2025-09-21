@@ -514,12 +514,6 @@ filtered = [e for e in emails if looks_like_school(e, domain_str, sender_str, kw
 st.caption(f"After filtering: {len(filtered)} email(s).")
 emails = filtered
 
-# Optional preview
-if st.button("Preview raw emails (subject + snippet)"):
-    for e in emails[:10]:
-        st.markdown(f"**{e.get('subject','')}** — {e.get('from','')}")
-        st.code((e.get('body') or "")[:600])
-
 # Build events (Gemini first, fallback regex)
 all_events = []
 for e in emails:
