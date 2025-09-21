@@ -590,7 +590,6 @@ else:
         format_func=lambda x: f"{x} — {df.loc[df['id']==x,'title'].values[0]}",
     )
 
-    # ⬅ keep this indented inside `with right:`
     chosen = df[df["id"].isin(selected)]
 
     if chosen.empty:
@@ -608,7 +607,8 @@ else:
                 ev.add("summary", row["title"])
                 ev.add("dtstart", start)
                 ev.add("dtend", end)
-                if row.get("location"): ev.add("location", row["location"])
+                if row.get("location"):
+ev.add("location", row["location"])
                 ev.add("description", f"From: {row['from']}\nNote: {row['note']}")
                 cal.add_component(ev)
             ics_bytes = cal.to_ical()
