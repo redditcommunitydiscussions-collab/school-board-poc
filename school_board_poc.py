@@ -483,18 +483,8 @@ with st.sidebar:
 if live_mode:
     st_autorefresh(interval=interval * 1000, key="auto_refresh_tick")
 
-st.markdown("## 📚 School Activity Board")
-colA, colB, colC, colD = st.columns([1,1,1,2])
-
-with colA:
-    st.metric("Fetched", len(result.get("emails", [])))
-with colB:
-    st.metric("After filters", len(emails))
-with colC:
-    st.metric("Detected events", len(all_events))
-with colD:
-    st.caption("Inbox → activities with filters and optional AI extraction.")
-st.divider()
+st.title("School Activity Board")
+st.caption("Inbox → activities with filters and optional AI extraction.")
 
 # ---------- Fetch path ----------
 if creds:
