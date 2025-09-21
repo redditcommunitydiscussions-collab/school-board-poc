@@ -76,7 +76,7 @@ MAILBOX    = env("MAILBOX", "INBOX")
 MAX_EMAILS = int(env("MAX_EMAILS", "80"))
 
 # Filter defaults
-DEFAULT_SCHOOL_DOMAINS = "austinisd.org, myschool.org, school.edu, k12.tx.us, pta.org"
+DEFAULT_SCHOOL_DOMAINS = " "
 DEFAULT_SCHOOL_SENDERS = ""  # e.g., "teacher@myschool.org, principal@district.k12.tx.us"
 DEFAULT_KEYWORDS       = "school, pta, teacher, classroom, homeroom, field trip, permission slip, bus, assembly, cafeteria, counselor, principal, due, forms"
 DEFAULT_NEGATIVE       = "unsubscribe, terms, privacy policy, marketing, promotion, sale, newsletter, invoice, receipt"
