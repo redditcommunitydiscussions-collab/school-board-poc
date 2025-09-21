@@ -541,99 +541,147 @@ for e in emails:
         all_events.append(ev)
 
 # ---------- UI: two-column layout ----------
+# ---------- UI: dashboard + cards ----------
+# Header KPIs
+st.markdown("## 📚 School Activity Board")
+k1, k2, k3, k4 = st.columns([1,1,1,2])
+with k1: st.metric("Fetched", len(result.get("emails", [])))
+with k2: st.metric("After filters", len(emails))
+with k3: st.metric("Detected events", len(all_events))
+with k4: st.caption("Inbox → activities with filters and optional AI extraction.")
+st.divider()
+
 if not all_events:
     st.info("No activities detected. Loosen filters or preview emails.")
 else:
-    sort_choice = st.radio("Sort by:", ["Urgency (High→Low)", "Start time (Soonest first)"], horizontal=True)
-
+    # Build DF for UI
     rows = []
     for i, ev in enumerate(all_events):
         score = int(ev.get("urgency_score", 0))
+        badge_txt = "🔴 High" if score >= 80 else ("🟡 Medium" if score >= 60 else "🟢 Low")
+        badge_class = "high" if score >= 80 else ("med" if score >= 60 else "low")
         rows.append({
             "id": i + 1,
             "title": ev.get("title", "School event"),
             "type": ev.get("type", "event"),
-            "urgency": badge_for_urgency(score),
             "urgency_score": score,
+            "badge_txt": badge_txt,
+            "badge_class": badge_class,
             "start": ev["start"].strftime("%Y-%m-%d %H:%M"),
             "end": ev["end"].strftime("%Y-%m-%d %H:%M"),
             "location": ev.get("location", ""),
             "from": ev.get("source_from", ""),
-            "note": ev.get("notes") or ev.get("raw_line", "")
+            "note": ev.get("notes") or ev.get("raw_line", ""),
         })
     df = pd.DataFrame(rows)
-    if not df.empty:
-        if sort_choice.startswith("Urgency"):
-            df = df.sort_values(by=["urgency_score", "start"], ascending=[False, True]).reset_index(drop=True)
-        else:
-            df = df.sort_values(by="start", ascending=True).reset_index(drop=True)
 
-    left, right = st.columns([2, 1], gap="large")
-
-with left:
-    st.subheader("Detected activities")
-    st.dataframe(
-        df[["id", "title", "type", "urgency", "start", "end", "location", "from", "note"]],
-        use_container_width=True,
-        hide_index=True,
-    )
-
-with right:
-    st.subheader("Select & export")
-    options = df["id"].tolist()
-
-    # Auto-select the first item if nothing chosen yet
-    selected = st.multiselect(
-        "Pick event ids",
-        options=options,
-        default=([options[0]] if options else []),
-        format_func=lambda x: f"{x} — {df.loc[df['id']==x,'title'].values[0]}",
-    )
-
-    chosen = df[df["id"].isin(selected)]
-
-    if chosen.empty:
-        st.caption("Select at least one event.")
+    # Sort control
+    sort_choice = st.radio("Sort by", ["Urgency (High→Low)", "Start time (Soonest first)"], horizontal=True)
+    if sort_choice.startswith("Urgency"):
+        df = df.sort_values(by=["urgency_score", "start"], ascending=[False, True]).reset_index(drop=True)
     else:
-        # .ics export
-        if st.button("Export selected as .ics", use_container_width=True):
-            cal = Calendar()
-            cal.add("prodid", "-//SchoolBoard POC//")
-            cal.add("version", "2.0")
-            for _, row in chosen.iterrows():
-                ev = Event()
-                start = datetime.strptime(row["start"], "%Y-%m-%d %H:%M")
-                end   = datetime.strptime(row["end"], "%Y-%m-%d %H:%M")
-                ev.add("summary", row["title"])
-                ev.add("dtstart", start)
-                ev.add("dtend", end)
-                if row.get("location"):
-                    ev.add("location", row["location"])
-                ev.add("description", f"From: {row['from']}\nNote: {row['note']}")
-                cal.add_component(ev)
-            ics_bytes = cal.to_ical()
-            st.download_button(
-                "Download .ics",
-                data=ics_bytes,
-                file_name="school_events.ics",
-                mime="text/calendar",
-                use_container_width=True,
-            )
+        df = df.sort_values(by="start", ascending=True).reset_index(drop=True)
 
-        # Quick add links to Google Calendar
-        st.markdown("**Quick add to Google Calendar**")
-        for _, row in chosen.iterrows():
-            start = datetime.strptime(row["start"], "%Y-%m-%d %H:%M")
-            end   = datetime.strptime(row["end"], "%Y-%m-%d %H:%M")
-            start_str = start.strftime("%Y%m%dT%H%M00")
-            end_str   = end.strftime("%Y%m%dT%H%M00")
-            params = {
-                "action": "TEMPLATE",
-                "text": row["title"],
-                "dates": f"{start_str}/{end_str}",
-                "details": f"{row['note']} (from {row['from']})",
-            }
-            if isinstance(row.get("location"), str) and row["location"].strip():
-                params["location"] = row["location"].strip()
-            url = "https://www.google.com/calendar/render?" + urlencode(params)
-            st.markdown(f"- {row['title']} — {row['start']}  [Add to Google Calendar]({url})")
+    # Tabs
+    tab_cards, tab_raw = st.tabs(["Activities", "Raw emails"])
+
+    # ----------------- Activities tab -----------------
+    with tab_cards:
+        left, right = st.columns([3, 1], gap="large")
+
+        with right:
+            st.subheader("Actions")
+            options = df["id"].tolist()
+
+            # Select-all UX
+            select_all = st.checkbox("Select all", value=True)
+            default_ids = options if select_all else []
+
+            selected = st.multiselect(
+                "Pick event ids",
+                options=options,
+                default=default_ids,
+                format_func=lambda x: f"{x} — {df.loc[df['id']==x,'title'].values[0]}",
+            )
+            chosen = df[df["id"].isin(selected)]
+            st.caption(f"Selected: **{len(chosen)}**")
+
+            if chosen.empty:
+                st.caption("Choose at least one to export or add to calendar.")
+            else:
+                # .ics export
+                if st.button("Export selected as .ics", use_container_width=True):
+                    cal = Calendar()
+                    cal.add("prodid", "-//SchoolBoard POC//")
+                    cal.add("version", "2.0")
+                    for _, row in chosen.iterrows():
+                        ev = Event()
+                        start = datetime.strptime(row["start"], "%Y-%m-%d %H:%M")
+                        end   = datetime.strptime(row["end"], "%Y-%m-%d %H:%M")
+                        ev.add("summary", row["title"])
+                        ev.add("dtstart", start)
+                        ev.add("dtend", end)
+                        if row.get("location"):
+                            ev.add("location", row["location"])
+                        ev.add("description", f"From: {row['from']}\nNote: {row['note']}")
+                        cal.add_component(ev)
+                    ics_bytes = cal.to_ical()
+                    st.download_button(
+                        "Download .ics",
+                        data=ics_bytes,
+                        file_name="school_events.ics",
+                        mime="text/calendar",
+                        use_container_width=True,
+                    )
+
+                st.markdown("**Quick add to Google Calendar**")
+                for _, row in chosen.iterrows():
+                    start = datetime.strptime(row["start"], "%Y-%m-%d %H:%M")
+                    end   = datetime.strptime(row["end"], "%Y-%m-%d %H:%M")
+                    start_str = start.strftime("%Y%m%dT%H%M00")
+                    end_str   = end.strftime("%Y%m%dT%H%M00")
+                    params = {
+                        "action": "TEMPLATE",
+                        "text": row["title"],
+                        "dates": f"{start_str}/{end_str}",
+                        "details": f"{row['note']} (from {row['from']})",
+                    }
+                    if isinstance(row.get("location"), str) and row["location"].strip():
+                        params["location"] = row["location"].strip()
+                    url = "https://www.google.com/calendar/render?" + urlencode(params)
+                    st.markdown(f"- {row['title']} — {row['start']}  [Add to Google Calendar]({url})")
+
+        with left:
+            st.subheader("Detected activities")
+            # Render cards (highlight if selected)
+            selected_ids = set(selected)
+            for _, row in df.iterrows():
+                level = "high" if row["urgency_score"] >= 80 else ("med" if row["urgency_score"] >= 60 else "low")
+                tag = f'<span class="sb-badge {row["badge_class"]}">{row["badge_txt"]}</span>'
+                picked = "✅" if row["id"] in selected_ids else "◻️"
+                loc = (row["location"] or "").strip()
+                loc_line = f"<br><b>Location:</b> {loc}" if loc else ""
+                st.markdown(
+                    f"""
+                    <div class="sb-card {level}">
+                        <h4 class="title">{picked} {row['title']}</h4>
+                        <p class="meta">
+                            <b>Start:</b> {row['start']}  •  <b>End:</b> {row['end']}  •  <b>Type:</b> {row['type']} {tag}
+                            {loc_line}<br>
+                            <b>From:</b> {row['from']}
+                        </p>
+                        <span class="sb-badge">#{row['id']}</span>
+                    </div>
+                    """,
+                    unsafe_allow_html=True,
+                )
+
+    # ----------------- Raw emails tab -----------------
+    with tab_raw:
+        st.subheader("Raw email preview")
+        if not emails:
+            st.caption("No emails to preview.")
+        else:
+            for e in emails[:20]:
+                with st.expander(f"{e.get('subject','(no subject)')} — {e.get('from','')}"):
+                    st.code((e.get("body") or "")[:2000])
