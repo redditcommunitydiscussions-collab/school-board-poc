@@ -12,6 +12,7 @@ import os
 import re
 import json
 import base64
+import html
 from datetime import datetime, timedelta
 from urllib.parse import urlencode
 
@@ -655,21 +656,30 @@ else:
                 picked = "✅" if row["id"] in selected_ids else "◻️"
                 loc = (row["location"] or "").strip()
                 loc_line = f"<br><b>Location:</b> {loc}" if loc else ""
+                
+                from_escaped = html.escape(row['from'])
+                title_escaped = html.escape(row['title'])
+                type_escaped = html.escape(row['type'])
+                start_escaped = html.escape(row['start'])
+                end_escaped = html.escape(row['end'])
+
                 st.markdown(
                     f"""
                     <div class="sb-card {level}">
-                        <h4 class="title">{picked} {row['title']}</h4>
+                        <h4 class="title">{picked} {title_escaped}</h4>
                         <p class="meta">
-                            <b>Start:</b> {row['start']}  •  <b>End:</b> {row['end']}  •  <b>Type:</b> {row['type']} {tag}
-                            {loc_line}<br>
-                            <b>From:</b> {row['from']}
-                        </p>
-                        <span class="sb-badge">#{row['id']}</span>
-                    </div>
-                    """,
-                    unsafe_allow_html=True,
+                           <b>Start:</b> {start_escaped}  •  <b>End:</b> {end_escaped}  •  <b>Type:</b> {type_escaped} {tag}
+                           {loc_line}<br>
+                           <b>From:</b> {from_escaped}
+                      </p>
+                     <span class="sb-badge">#{row['id']}</span>
+                 </div>
+                 """,
+                 unsafe_allow_html=True,
                 )
 
+
+    
     # ----------------- Raw emails tab -----------------
     with tab_raw:
         st.subheader("Raw email preview")
